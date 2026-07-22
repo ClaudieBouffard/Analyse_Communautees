@@ -1,0 +1,824 @@
+---
+title: "Analyse des Communautées d'amphibiens - Maîtrise en biologie"
+author: "Claudie Bouffard"
+format:
+  html:
+    embed-resources: true
+toc: true
+editor: visual
+---
+
+## Glossaire :
+
+### Liste d'espèces sélectionnées :
+
+-   **Ambystoma :** Salamandres du genre *Ambystoma*. Les espèces présentes au Québec, la salamandre maculée (*A. maculatum*), la salamandre à points bleues (*A. laterale*) et/ou salamandres du complexe de Jerfferson (*A. jeffersonianum complex*), sont incluses dans cette étude. Celles-ci sont toutes des espèces concidérées comme dépendantes des étangs vernaux et qui partagent un cycle de vie similaires.
+
+-   **LISY :** Grenouille des bois (Lithobates sylvaticus). Espèce dépendante des étangs vernaux.
+
+-   **LICL :** Grenouille verte (*Lithobates clamitans*). Espèce associée aux habitats à canopées ouvertes et étangs permanents. Représente de la compétition/prédateur pour les espèces dépendantes des étangs vernaux.
+
+-   **PSCR :** Rainette cucifère (Pseudacris crucifer). Espèce versatile et non-prédatrice des espèces dépendantes des étangs vernaux.
+
+### Liste de type de traitements:
+
+-   **PEH :** Plantation de peuplier hybrides sur monticule (entre 1 à 5 ans). Les arbres sont trop jeunes pour avoir un effet sur l'hydrologie par evapotranspiration. Canopée particulièrement ouverte car les arbres sont petits.
+
+-   **CPPTM :** Coupe avec Protection des Petites Tiges Marchandes. Similaire à la coupe totale mais certains jeunes arbres sont laissés sur place. Ceux-ci ont tendance à tomber avec le vent. Sur les terres de DOMTAR, cette pratique est majoritairement dans des peuplements résineux mais a été vu dans du feuillus
+
+-   **CJ :** Coupe de Jardinage. Coupe qui imite le régime de trouée naturel des forêts de feuillus matures. Cela n'empêche la dégradation du sol par les ornières de machinerie. La canopée reste fermée.
+
+-   **NAT:** Étangs vernaux sélectionnées dans des milieux protégés depuis au moins 70 ans. Celui-ci représente le contrôle pour mon étude.
+
+## Est-ce que la communauté d'amphibiens diffère entre les types de traitements sylvicoles ?
+
+1.  **Création de la base de donnée**
+
+    ```{r}
+    #| warning: false
+    library(readxl)
+    df2 <-read_excel("C:/Users/super/Université du Québec en Outaouais/CLAUDIE ÉTANGS VERNAUX - Documents/Stats/Structure_des_communautes/Data_Base_presenceV7.xlsx", sheet = 1)
+    df2 <- df2[, 1:6]
+    df2$No_etang <- as.factor(df2$No_etang)
+    df2$Traitement <- as.factor(df2$Traitement)
+    mat2 <- df2[, !(names(df2) %in% c("No_etang", "Traitement"))]
+    mat2
+
+    ```
+
+2.  **Calcul de l'indice de Jaccard**
+
+    ```{r}
+    #| warning: false
+    library(vegan)
+    jac2 <- vegdist(mat2, method = "jaccard", binary = TRUE)
+    ```
+
+3.  **Test des conditions: Homogénité des dispersions**
+
+    ```{r}
+    #| warning: false
+    bd <- betadisper(jac2, df2$Traitement) 
+    anova(bd)
+    permutest(bd)
+    ```
+
+    Ici, le résultats de l'ANOVA et du permutest du betadisper est non significatif. Donc, la condition est respecté. Pas besoin de modifier la base de donnée.
+
+4.  **PERMANOVA:**
+
+    ```{r}
+    PERMANOVA1 <- adonis2(jac2 ~ df2$Traitement,permutations = 9999)
+    PERMANOVA1
+    ```
+
+    C'est significatif ! La communauté d'amphibiens dans au moins un type de traitement sylvicole diffère des autres.
+
+5.  **Test Post-Hoc: Pairwise à la main.**
+
+    Malheureusement, le package qui s'occupait de faire le pairwise pour la PERMANOVA (pairwiseAdonis) n'est présentement plus fonctionnel avec les récentes versions de R. Ainsi, il faut maintenant créer la fonction à la main.
+
+    ```{r}
+    pairwise_permanova <- function(data, group, method = "jaccard", nperm = 999) {
+      groups <- levels(group)
+      comb <- combn(groups, 2, simplify = FALSE)
+      
+      results <- data.frame()
+      
+      set.seed(123) #permet d'obtenir constament le même résultat
+     
+       for (i in comb) {
+        sel <- group %in% i
+        sub_data <- data[sel, ]
+        sub_group <- droplevels(group[sel])
+        
+        ad <- adonis2(sub_data ~ sub_group,
+                      method = method,
+                      binary = TRUE,
+                      permutations = nperm)
+        
+        results <- rbind(results,
+                         data.frame(group1 = i[1],
+                                    group2 = i[2],
+                                    F = ad$F[1],
+                                    R2 = ad$R2[1],
+                                    p = ad$`Pr(>F)`[1])) }
+      
+      #Correction avec la procédure de Benjamin et Hochberg (FDR)
+      results$p_adj <- p.adjust(results$p, method = "BH")
+      results}
+
+    ```
+
+    Avec cette fonction, il est maintenant possible de faire le pairwise.
+
+    ```{r}
+    pairwise_permanova(mat2, df2$Traitement)
+    ```
+
+    Tout est significatif à part CJ et NAT ! Ainsi, toutes les communautés de chaque traitements diffèrent les unes des autres sauf les communautés de CJ et de NAT qui sont théoriquement similaires.
+
+6.  **Visualisation : NDMS**
+
+    Un NDMS est une bonne méthode pour visualiser les résultats d'une PERMANOVA.
+
+    ```{r}
+    #| warning: false
+    set.seed(123)  # s'assure d'avoir des résultats constants
+    nmds2 <- metaMDS(mat2,distance = "jaccard",binary=TRUE,k=2,trymax=100,autotransform=FALSE, trace = 0)
+    nmds2$stress
+    ```
+
+    stress = 0.05 ce qui est bas. Ceci assure que la positions des points dans le graphique est représentatif.
+
+    Puisque la PERMANOVA analyse la position moyenne des communautés, de pouvoir visualiser les centroïdes permettent d'essentiellement de voir ce que la PERMANOVA analyse entre chaque traitement. Ainsi, voici comment j'ai extrait les centroïdes:
+
+    ```{r}
+    #| message: false
+    scores <- scores(nmds2, display = "sites")
+    cent <- aggregate(scores, by = list(trait = df2$Traitement), FUN = mean)
+    colnames(scores)
+    ```
+
+    De plus, plusieurs points partagent la même communauté d'amphibiens. Ainsi,du jitter doit être appliqué pour mieux visualiser les résultats
+
+    ```{r}
+    set.seed(123) # s'assure d'avoir des résultats constants
+    sc_jit <- scores
+    sc_jit[,1] <- jitter(scores[,1], amount = 0.02)
+    sc_jit[,2] <- jitter(scores[,2], amount = 0.02)
+    ```
+
+    Avec cela, on est prêt à faire le graphique du NDMS
+
+    ```{r}
+    plot(nmds2, type = "n", ylim=c(-1.5,2))
+    points(sc_jit,
+           col = df2$Traitement,
+           pch = 19,
+           cex = 1.2)
+    ordiellipse(nmds2,
+      groups = df2$Traitement,
+      show.groups = c("CJ", "CPPTM", "PEH"),
+      kind = "sd",
+      conf = 0.95,  draw = "line", col = c(1,2,4), 
+      lwd = 2)
+    legend("topright",
+      legend = levels(df2$Traitement),
+      col = 1:length(levels(df2$Traitement)),
+      pch = 19,
+      bty = "n")
+    points(cent$NMDS1, cent$NMDS2,
+           pch = 4, cex = 2, lwd = 2,
+           col = 1:length(levels(df2$Traitement)))
+    ```
+
+    +:---------------------------:+:--------------------------:+
+    | n NAT = 6\                  | n CPPTM = 15\              |
+    | n CJ = 19                   | n PEH = 17                 |
+    +-----------------------------+----------------------------+
+
+    Ici, je n'ai pas fait apparaître l'ellipse de NAT puisqu'elle était représentée que par une ligne. Ceci est dut par la faible diversité des communautés d'amphibiens. Ainsi, NAT n'est représenté que par des points.
+
+7.  **Conclusion :**
+
+    Les communautés d'amphibiens varies tous selon les types de traitements sauf les communautés qui se trouvent dans les étangs de CJ et NAT. Ainsi les communautés d'amphibiens dans les CJ sont similaire au milieux naturel utilisé en référence. Il semblerait alors que les communautés dans les plantations de PEH dans DOMTAR ne reflèterait pas le milieu naturel.
+
+## Comment est-ce que les valeurs environnementales expliquent la composition en espèces d’amphibiens ?
+
+Liste des valeurs environnementales incluses:
+
+-   **Température :** Moyenne en Celcius
+
+-   **pH :** Moyenne
+
+-   **Surface :** Surface maximale calculée pour l'étang en cm2
+
+-   **Volume :** Volume maximale calculé pour l'étang en Litres
+
+-   **Pourcentage d'ouverture de la canopée :** Moyenne des points Nord, Sud, Est, West. 100% = complètement ouvert sans végétation, 0% = complètement fermée par la végétation.
+
+-   **Quantité de débris ligneux dans l'étang :** Quantité de débris ligneux qui se trouve dans l'étang. Les débris ligneux est une caractéristique important pour attacher les oeufs des amphibiens. Classé en 4 niveau de présence: Abscent, Faible, Moyen et Élevée
+
+-   **Quantité de débris ligneux autour l'étang :** Quantité de débris ligneux qui se trouve dans un périmètre de 10m autour de l'étang. Les débris ligneux hors de l'étang sert de refuge humide pour les amphibiens en phase terrestres (juvéniles et adultes reproducteurs). Classé en 4 niveau de présence: Abscent, Faible, Moyen et Élevée.
+
+-   **Hydropériode :** Pour éviter des biais liée aux dates de fin de prise de données qui varie selon le type de traitement (dut aux limitations de terrain), l'hydropériode a été classé en deux niveau. Sec ou humide pour refléter l'état de l'étang à la fin de la prise de données. Les étangs concidérés ''humides'' n'ont jamais séchés durant la prise de donnée.
+
+Avec cela, voici l'analyse que j'ai fait :
+
+1.  **Préparation de la base de donnée :**
+
+    ```{r}
+    #| warning: false
+    library(readxl)
+    df2 <-read_excel("C:/Users/super/Université du Québec en Outaouais/CLAUDIE ÉTANGS VERNAUX - Documents/Stats/Structure_des_communautes/Data_Base_presenceV7.xlsx", sheet = 1)
+    df2$Traitement <- as.factor(df2$Traitement)
+    df2$Ph_moy <- as.numeric(df2$Ph_moy)
+    df2$Temp_moy <- as.numeric(df2$Temp_moy)
+    df2$superficie <- as.numeric(df2$superficie)
+    df2$volume <- as.numeric(df2$volume)
+    df2$Ouverture <- as.numeric(df2$Ouverture)
+    df2[, 2:5] <- lapply(df2[, 2:5], as.numeric)
+    df2$Debris_in<- as.numeric(factor(df2$Debris_in,levels = c("abscence", "faible", "moyen", "eleve"),ordered = TRUE))
+    df2$Debris_out<- as.numeric(factor(df2$Debris_out,levels = c("abscence", "faible", "moyen", "eleve"),ordered = TRUE))
+    #pour débris, voici les codes: 1=abscence, 2=faible, 3=moyen, 4=eleve)
+    df2$Hydro<- factor(df2$Hydro, levels = c("hum", "sec"))
+    df2
+
+    #Puisque cette base de donnée est grosse, je vais créer des objets pour faciliter les prochaines étapes.
+
+    sp2=df2[, 2:5]
+    trait2=df2$Traitement
+
+    env <- df2[, c("Ph_moy", "Temp_moy", "superficie", "volume","Ouverture", "Debris_in", "Debris_out","Hydro")]
+    env
+
+    Temperature <- env$Temp_moy
+    pH <- env$Ph_moy
+    Superficie <- env$superficie
+    Volume <- env$volume
+    Pourcentage_Ouverture <- env$Ouverture
+    Presence_debris_hors_etang <- env$Debris_out
+    Presence_debris_dans_etang <- env$Debris_in
+    Hydro_ <- env$Hydro
+    ```
+
+2.  **CCA ou RDA ? :**
+
+    Pour savoir quel type d'analyse est la meilleure pour mes données, faut faire un test DCA
+
+    ```{r}
+    decorana(sp2)
+    ```
+
+    Le test DCA indique un gradient court (DCA1= 2.23) donc une RDA conseillé. Puisque les données de la présence/absence des espèces sont binaire, il faut faire la transformation de Hellinger pour notre RDA (tb-RDA)
+
+    ```{r}
+    sp3=decostand(sp2, method = "hellinger")
+    ```
+
+3.  **Choix du modèle :**
+
+    Premièrement, faut voir s'il y a de la collinéarité
+
+    ```{r}
+    modrda1 <- rda(sp3 ~ pH + Temperature + Superficie + Volume + Pourcentage_Ouverture + Presence_debris_dans_etang + Presence_debris_hors_etang+Hydro_)
+    vif.cca(modrda1)
+    ```
+
+    Tout est sous 3 donc tout va bien, pas de collinéarité.
+
+    J'ai essayé plusieurs méthodes pour trouver un bon modèle, mais le meilleur (R2 élevé en plus d'être parcimonieux) est ressorti avec ordistep()
+
+    ```{r}
+    modrda_null <- rda(sp3 ~ 1, data = env)
+    select1 <- ordistep(modrda_null,scope = formula(modrda1),direction = "both",permutations = 999, trace = 0)
+    select1
+    #Les valeurs les plus importantes sont : Pourcentage d'ouverture, Hydrologie et Présence de débris hors de l'étang
+
+    modrda6 <- rda(sp3 ~ Pourcentage_Ouverture +Hydro_+ Presence_debris_dans_etang)
+    RsquareAdj(modrda6)
+    ```
+
+    Le modèle explique environ 28,96% de la variation de la communauté d'amphibiens ce qui est excellent.
+
+4.  **Visualisation :**
+
+    Tout comme la PERMANOVA, il est préférable de voir les centroïdes. Ainsi, voici comment je les aient extraient
+
+    ```{r}
+    #| message: false
+    scores3 <- scores(modrda6, display = "sites")
+    cent3 <- aggregate(scores3, by = list(trait = trait2), FUN = mean)
+    ```
+
+    Plusieurs points se superposent. Du jitter est donc préférable pour mieux interpréter le graphique
+
+    ```{r}
+    set.seed(123)
+    scores3_jit <- scores3
+    scores3_jit[,1] <- jitter(scores3[,1], amount = 0.03)
+    scores3_jit[,2] <- jitter(scores3[,2], amount = 0.03)
+    ```
+
+    Pour bien comprendre il faut d'abord voir quel valeur affecte le plus les axes du graphique:
+
+    ```{r}
+    scores(modrda6, display = "bp")
+    ```
+
+    Ici on voit que l'axe 1 (x) est le plus influencé par l'ouverture et l'hydrologie. L'hydro sec est négatif, donc celui-ci se trouve au coté négatif du graph. L'axe 2 (y) est le plus influencé par la présence de débris dans l'étang:
+
+    ![](images/Screenshot%202026-07-08%20163946.png)
+
+    Enfin, voici le graphique:
+
+    ```{r}
+    #| warning: false
+    plot(modrda6, xlim = c(-1.5, 1.5), ylim = c(-1, 1.5), cex=0.8)
+    points(scores3_jit[,1],scores3_jit[,2], display = 'sites' , col = as.numeric(trait2), pch=19)
+    points(cent3$RDA1, cent3$RDA2, pch = 4, cex = 2, lwd = 2, col = 1:length(levels(trait2)))
+    text(modrda6, display = "species", cex=0.8 )
+    legend("topright", legend = levels(trait2), col = 1:length(levels(trait2)), pch = 19)
+
+    ```
+
++:--------------------------------:+:-------------------------------:+
+| n NAT = 6\                       | n CPPTM = 15\                   |
+| n CJ = 19                        | n PEH = 17                      |
++----------------------------------+---------------------------------+
+
+5.  **Conclusion :**
+
+    Premièrement, la création de modèle à l'aide de ordistep() a permis de révéler que les trois valeurs environnementales qui influencent le plus les communautés d'amphibiens soit: le pourcentage d'ouverture de la canopée, l'hydropériode des étangs puis la présence de débris dans l'étang. Ensemble, ces variables expliquent 28.96% de la variation des communautés. Il est toutefois important de noter que les deux variables les plus importantes semblent être l'ouverture de la canopée et l'hydropériode:
+
+    ```{r}
+    modrda9 <- rda(sp3~ Pourcentage_Ouverture+ Hydro_)
+    RsquareAdj(modrda9)
+    ```
+
+    Reste que, à elles seules, ces valeurs expliquent 24,81% de la variation des communautés.
+
+    Avec la RDA, il semblerait que les ambystomes soit plutôt associées aux caractéristiques classiques d'un étang vernal (canopée fermée avec courte hydropériode). Ces caractéristiques sembleraient associés aux traitements NAT et CJ. Les LISY semblent beaucoup plus résistants à l'ouverture de la cannopée que les ambystomes. Ceci pourrait être expliqué par leur capacité de déplacement plus développées. Les grenouilles vertes (LICL) semblent associées avec les plantations.
+
+    À noter que les ambystomes sont seules dans leur coin, celles-ci pourraient donc être à la source de la variation des populations entre les différents types de traitements puisque ce genre est celui qui diffère le plus des autres espèces d'amphibiens qui sont relativement proches les un des autres.
+
+## Exploration des variables environnementales
+
+### Ouverture de la cannopée:
+
+1.  **Préparation de la base de donnée :**
+
+    ```{r}
+    df <-read_excel("C:/Users/super/Université du Québec en Outaouais/CLAUDIE ÉTANGS VERNAUX - Documents/Stats/Structure_des_communautes/Data_Base_presenceV7.xlsx", sheet = 1)
+    df2 <- df[, c(1, 6, 11)]
+    df2$Traitement <- as.factor(df2$Traitement)
+    df2$No_etang <- as.factor(df2$No_etang)
+    df2
+    ```
+
+2.  **Choix de l'analyse :**
+
+    On commence en vérifiant la normalité des résidus:
+
+    ```{r}
+    mod <- lm(df2$Ouverture ~ df2$Traitement)
+    shapiro.test(residuals(mod))
+    ```
+
+    Les résidus ne sont pas normaux. C'est donc mieux de faire une analyse de Kruskal–Wallis et non une ANOVA.
+
+3.  **Analyse de Kruskal–Wallis :**
+
+    ```{r}
+    kruskal.test(Ouverture ~ Traitement, data = df2)
+    ```
+
+    C'est significatif, l'ouverture de la canopée diffère significativement dans au moins un des types de traitements.
+
+4.  **Post-hoc : DunnTest avec correction de Holm**
+
+    ```{r}
+    #| warning: false
+    library(FSA)
+    dunnTest(Ouverture ~ Traitement,data = df2, method = "holm")
+    ```
+
+    Ici, ils diffèrent tous sauf CPPTM-PEH et CJ-NAT qui se ressemblent au niveau de l'ouverture de la cannopée.
+
+5.  **Visualisation :**
+
+    ```{r}
+    df2$Traitement <- factor(df2$Traitement, levels = c("NAT", "CJ", "CPPTM", "PEH"))
+
+    boxplot(df2$Ouverture ~ df2$Traitement,ylab = "Pourcentage d'ouverture de la canoppée (%)", xlab = "Traitements sylvicoles",ylim=c(0,110))
+    text(x = 1, y = 25, labels = "a", cex = 1.3)   # NAT
+    text(x = 2, y = 62, labels = "a", cex = 1.3)  # CJ
+    text(x = 3, y = 105, labels = "b", cex = 1.3)   # CPPTM
+    text(x = 4, y = 105, labels = "b", cex = 1.3)  # PEH
+    ```
+
++:--------------------------------:+:-------------------------------:+
+| n NAT = 6\                       | n CPPTM = 15\                   |
+| n CJ = 19                        | n PEH = 17                      |
++----------------------------------+---------------------------------+
+
+6.  **Conclusion :**
+
+    Le pourcentage de l'ouverture de la canopée des CJ est similaire à celle dans les références en milieu naturel. L'ouverture de la canopée dans les plantations n'est pas du tout similaire à celle du milieu naturel et ressemble plutôt à celle des traitements CPPTM qui coupe presque la majorité de la canopée. Ceci pourrait expliquer pourquoi les ambystomes ne sont presque pas présentes dans les plantations.
+
+### Hydrologie :
+
+1.  **Préparation des données :**
+
+    ```{r}
+    df3 <-read_excel("C:/Users/super/Université du Québec en Outaouais/CLAUDIE ÉTANGS VERNAUX - Documents/Stats/Structure_des_communautes/Data_Base_presenceV7.xlsx", sheet = 1)
+    df4 <- df3[, c(1, 6, 14)]
+    df4$Traitement <- as.factor(df4$Traitement)
+    df4$No_etang <- as.factor(df4$No_etang)
+    df4$Hydro <- factor(df4$Hydro, levels = c("sec", "hum"))
+    df4
+    ```
+
+2.  **Choix de l'analyse :**
+
+    Cette base de donnée n'est pas idéale puisqu'elle est binaire ''sec'' ou ''humide''. De plus, il y a la présence de zéro puisqu'aucun étang dans PEH n'a séché:
+
+    ```{r}
+    table(df4$Traitement, df4$Hydro)
+    ```
+
+    Ainsi, un GLM binomial avec méthode brglmFit (puisqu'il y a des zéros) sera utilisé.
+
+3.  **GLM :**
+
+    ```{r}
+    #| warning: false
+    library(brglm2)
+    mod2 <- glm(Hydro ~ Traitement,data=df4,family=binomial,method="brglmFit")
+    anova(mod2, test="Chisq")
+    ```
+
+    L'anova ressort significatif. Théoriquement, l'hydrologie d'un traitement diffère des autres. Pour ''double check'' on peut aussi faire un Fisher test:
+
+    ```{r}
+    table_hydro <- table(df4$Traitement, df4$Hydro)
+    fisher.test(table_hydro)
+    ```
+
+    Le même résultat a été obtenu, c'est significatif.
+
+4.  **DHARMa :**
+
+    Il faut s'assurer que le modèle est correct avant de commencer l'interprétation.
+
+    ```{r}
+    #| warning: false
+    library(DHARMa)
+    res <- simulateResiduals(mod2, n=1000)
+    plot(res)
+    ```
+
+    Généralement bon.
+
+5.  **Post-hoc : Pairwise avec correction de holm** (évite les faux-positifs)
+
+    ```{r}
+    #| warning: false
+    library(emmeans)
+    pairs(emmeans(mod2, ~Traitement, type="response"), adjust="holm")
+    ```
+
+    Ici, nous avons un problème: rien n'est significatif avec la correction de holm! Toutefois, il semblerait que l'hydropériode des étangs de NAT-PEH pourraient être différents. Par contre, puisque le n PEH= 17 et n NAT= 6, il semblerait que le nombre d'échantillonage de NAT soit trop bas pour être certain.
+
+6.  **Visualisation :**
+
+    ```{r}
+    df4$Traitement <- factor(df4$Traitement, levels = c("NAT", "CJ", "CPPTM", "PEH"))
+    tab <- prop.table(table(df4$Traitement, df4$Hydro), margin = 1)
+
+    barplot(t(tab),
+            beside = TRUE,
+            col = c("tan", "steelblue"),
+            ylim = c(0,1.1),
+            ylab = "Proportion",
+            xlab = "Traitement")
+
+    legend("topleft",
+           legend = c("sec","hum"),
+           fill = c("tan","steelblue"),
+           bty = "n",
+           cex=1.5)
+    ```
+
++:--------------------------------:+:-------------------------------:+
+| n NAT = 6\                       | n CPPTM = 15\                   |
+| n CJ = 19                        | n PEH = 17                      |
++----------------------------------+---------------------------------+
+
+7.  **Conclusion** :
+
+    Ici, il n'y a pas assez de données pour obtenir un résultat significatif. Toutefois, en regardant le graphique à barre, une tendance semble claire: Les étangs dans les plantations ne semble presque jamais sécher alors que ceux dans les NAT et CJ semble sécher beaucoup plus souvent. Ainsi, l'hydrologie des étangs dans les plantations ne semblent pas refléter ce qui est observé en nature.
+
+### Débris ligneux dans l'étang :
+
+1.  **Préparation des données :**
+
+    ```{r}
+    df5 <-read_excel("C:/Users/super/Université du Québec en Outaouais/CLAUDIE ÉTANGS VERNAUX - Documents/Stats/Structure_des_communautes/Data_Base_presenceV7.xlsx", sheet = 1)
+    df6 <- df5[, c(1, 6, 12)]
+    df6$Traitement <- as.factor(df6$Traitement)
+    df6$No_etang <- as.factor(df6$No_etang)
+    df6$Debris_in<- factor(df6$Debris_in,levels = c("abscence","faible","moyen","eleve"),ordered = TRUE)
+    df6
+    ```
+
+2.  **Choix des analyses :**
+
+    On recherche un test qui est capable de prendre en compte les niveaux de débris:\
+    absence \< faible \< moyen \< élevé\
+    Une régression logistique ordianle (CLM) serait alors idéale. Par contre, il y a beaucoup de zéros dans la base de donnée:
+
+    ```{r}
+    table(df6$Traitement,df6$Debris_in)
+    ```
+
+    Il faut donc s'assurer que le modèle converge avant de continuer :
+
+    ```{r}
+    #| warning: false
+    library(ordinal)
+    mod3 <- clm(Debris_in ~ Traitement, data = df6) 
+    summary(mod3)
+    ```
+
+    Ici, le modèle converge de manière excellente (max.grad = 8.69 x 10\^-9 ce qui est nottament meilleur que le seuil recommandé de moins de 10\^-6).
+
+    Niter 5 signifie que ça a pris que 5 itérations pour que le modèle converge ce qui est bien.\
+    Les colones de Std. Error sont basses ce qui indique le bon fonctionnement du modèle.\
+    Les Threshold coefficients sont bien ordonnées.
+
+    Tout indique que le modèle est acceptable, donc ce sera un CLM qui sera effectué.
+
+3.  **CLM :**
+
+    ```{r}
+    anova(mod3)
+    ```
+
+    Le p-value est significatif, les niveaux de présence de débris diffère dans au moins un type de traitement sylvicole.
+
+4.  **Post-Hoc : Emmeans**
+
+    ```{r}
+    emm2 <-  emmeans(mod3, ~ Traitement)
+    pairs(emm2, adjust = "holm")
+    ```
+
+    Les traitements diffèrent tous sauf les paires CJ-PEH et CPPTM-NAT.
+
+5.  **Visualisation :**
+
+    ```{r}
+    df6$Traitement <- factor(df6$Traitement, levels = c("NAT", "CJ", "CPPTM", "PEH"))
+    tab1 <- table(df6$Traitement, df6$Debris_in)
+    prop <- prop.table(tab1, margin = 1)* 100 #c'est plus intéressant si je montre les proportions
+    cols <- c("grey80", "lightgreen", "orange", "red")
+
+    barplot(t(prop), beside = TRUE, xlab = "Traitement sylvicole", ylab = "Proportion d'étangs (%)",ylim = c(0,100), names.arg = rownames(tab1), legend.text = colnames(tab1), col = cols, args.legend = list(title = "Catégorie de présence de \ndébris dans l'étang", y = 120,ncol=2))
+    text(x = 3, y = 90, labels = "b", cex = 2)   # NAT
+    text(x = 7.5, y = 90, labels = "a", cex = 2)  # CJ
+    text(x = 12.5, y = 43, labels = "b", cex = 2)   # CPPTM
+    text(x = 17.5, y = 82, labels = "a", cex = 2)  # PEH
+    ```
+
++:--------------------------------:+:-------------------------------:+
+| n NAT = 6\                       | n CPPTM = 15\                   |
+| n CJ = 19                        | n PEH = 17                      |
++----------------------------------+---------------------------------+
+
+6.  **Conclusion :**
+
+    Ici, le niveau de présence de débris ligneux dans le traitement NAT serait significativement différent de CJ et PEH, tous deux ayant majoritairement un abscence de débris ligneux. Encore une fois, les plantations diffèrent du milieu naturel.
+
+## Est-ce certaines espèces sont associés à certains traitements sylvicoles ? Pourquoi ?
+
+Les types de traitements modifie l'habitat des amphibiens, notamment, l'ouverture de la canopée, la présence de débris dans les étant et, probablement (mais sans résultats définitifs), l'hydropériode. La RDA précédente semble avoir révélé que les ambystomes sont des espèces spécifiquement associées à un habitat différent que les autres amphibiens puisqu'elles sont isolée dans un coin près de NAT et CJ. Serait-elles des espèces indicatrices qui expliquerait la séparation significative de la communautée entre NAT/CJ et les autres types de traitements?
+
+1.1 **Préparation des données:**
+
+```{r}
+df <-read_excel("C:/Users/super/Université du Québec en Outaouais/CLAUDIE ÉTANGS VERNAUX - Documents/Stats/Structure_des_communautes/Data_Base_presenceV7.xlsx", sheet = 1)
+sp <- df[, c("ambystoma", "LISY", "LICL", "PSCR")]
+sp
+```
+
+1.2 **Choix de l'analyse :**
+
+Le code suivant révèle qu'aucune espèce est excessivement rare:
+
+```{r}
+colSums(sp)
+```
+
+Ainsi, il est possible de faire l'analyse IndVal (Indicator Species Analysis) pour répondre à la question.
+
+1.3 **IndVal :**
+
+```{r}
+#| warning: false
+library(indicspecies)
+res <- multipatt(sp,cluster = df$Traitement,func = "IndVal.g",control = how(nperm = 9999))
+summary(res)
+```
+
+Ici, il est possible de voir que les ambystomes sont significativement associées aux traitements sylvicoles NAT et CJ (p-value = 4e-04)
+
+**2.1 Pousser plus loin : Qu'est-ce qui explique la présence des ambystomes dans les NAT/CJ ?**
+
+On sait que les traitements affecte l'habitat et on a découvert que les valeurs environnementales suivantes semblent celles qui détermine le plus les communautés d'amphibiens: L'ouverture de la canopée, l'hydropériode et la présence de débris dans les étangs. Mais, spécifiquement pour les ambystomes, qui ont maintenant été définie comme des espèces indicatrices de CJ/NAT, quel valeur environnementales influence le plus leur présence/absence dans l'habitat?
+
+2.2 **Préparation des données :**
+
+```{r}
+df <-read_excel("C:/Users/super/Université du Québec en Outaouais/CLAUDIE ÉTANGS VERNAUX - Documents/Stats/Structure_des_communautes/Data_Base_presenceV7.xlsx", sheet = 1)
+df$Traitement <- as.factor(df$Traitement)
+df$Ouverture <- as.numeric(df$Ouverture)
+df[, 2:5] <- lapply(df[, 2:5], as.numeric)
+df$Debris_in<- as.numeric(factor(df$Debris_in,levels = c("abscence", "faible", "moyen", "eleve"),ordered = TRUE))
+#pour débris, voici les codes: 1=abscence, 2=faible, 3=moyen, 4=eleve)
+df$Hydro<- factor(df$Hydro, levels = c("hum", "sec"))
+df
+
+Traitement <- df$Traitement
+Ouverture <- df$Ouverture
+df$Debris_in <- ordered(df$Debris_in)
+Debris_in <- df$Debris_in
+Hydro <- df$Hydro
+```
+
+2.3 **Choix de l'analyse** :\
+Pour pouvoir analyser l'impact de chaque valeur environnementales, il serait préférable de comparer des modèles de GLM entre eux. Pour se faire, je vais juste m'assurer qu'un modèle global respecte les conditions d'un GLM:
+
+```{r}
+mod_test <- glm(ambystoma ~ Traitement + Ouverture + Hydro + Debris_in ,family = binomial, data=df)
+table(df$Traitement, df$ambystoma)
+summary(mod_test)
+```
+
+Ici, on a clairement un problème ! Il y a une séparation complète pour le traitement NAT. Tout les traitements NAT ont des ambystomes alors le modèle nous donne un Standard Error hyper élevé.\
+Il est nécessaire de corriger ce problème avec une régression pénalisée
+
+```{r}
+#| warning: false
+library(brglm2)
+library(car)
+library(DHARMa)
+mod_test <- glm(ambystoma ~ Traitement + Ouverture + Hydro + Debris_in ,family = binomial,  method = "brglmFit", data=df) 
+summary(mod_test)
+vif(mod_test) #pas de collinéarité, c'est ok
+res <- simulateResiduals(mod_test) #validation du modèle corrigé
+plot(res)
+testUniformity(res) #uniformité des résidus (p-value plus de 0.05) Good!
+testDispersion(res) #Pas de surdispersion (p-value plus de 0.05) Good!
+testOutliers(res) #0 Outliers, Good!
+
+```
+
+La régression pénalisé a bien ajusté le modèle. Par contre, pour que les modèles soient tous comparables, ceux-ci doivent tous avoir cette pénalité.
+
+2.4 **Comparaison des GLM avec Régression Pénalisées :**
+
+-Débris dans les étangs
+
+Ce modèle ne semble pas fonctionner
+
+```{r}
+mod_debris <- glm(ambystoma ~ Debris_in,family = binomial,method = "brglmFit",data = df)
+```
+
+Pour savoir si la correction de cette problématique est pertinant, j'ai essayé de voir si cette valeur était vraiment importante ou non pour expliquer la présence des ambystomes.
+
+```{r}
+#Note: On ne peux pas utiliser la fonction aictab à cause de brglmFit! On doit donc la faire de manière manuelle
+AICc <- function(model) {
+  n <- nobs(model)
+  k <- length(coef(model))
+  AIC(model) + (2*k*(k+1))/(n-k-1)
+}
+
+#modèle sans l'inclusion de débris
+mod_sans_debris <- glm(ambystoma ~ Traitement + Ouverture + Hydro,family = binomial,method = "brglmFit",data=df)
+
+#modèle global qui inclus les débris
+mod_global <- glm(ambystoma ~ Traitement + Ouverture + Hydro + Debris_in,family = binomial,method = "brglmFit",data = df)
+
+#Création d'un tableau pour voir si l'inclusion des débris est vraiment important
+Test_debris <- list(
+  Sans = mod_sans_debris,
+  Avec = mod_global)
+aicc_debris <- sapply(Test_debris, AICc)
+resultats_debris <- data.frame(
+  Modele = names(aicc_debris),
+  AICc = aicc_debris)
+resultats_debris$Delta_AICc <- resultats_debris$AICc - min(resultats_debris$AICc)
+resultats_debris$Poids <- exp(-0.5 * resultats_debris$Delta_AICc) /
+  sum(exp(-0.5 * resultats_debris$Delta_AICc))
+resultats_debris[order(resultats_debris$AICc), ]
+```
+
+C'est très clair, les débris dans les étangs ne semblent pas contribuer de manière importante à la présence/absence des ambystomes. Il est donc préférable de les retirer des modèles. Surtout s'il pose problème.
+
+-Ouverture de la canopée
+
+```{r}
+mod_can <- glm(ambystoma ~ Ouverture,family = binomial,method = "brglmFit",data = df)
+summary(mod_can) 
+```
+
+```{r}
+#| warning: false
+#| fig-show: hide
+#vérification de la validité du modèle
+res2 <- simulateResiduals(mod_can)
+testUniformity(res2) #uniformité des résidus (p-value plus de 0.05) Good!
+testDispersion(res2) #Pas de surdispersion (p-value plus de 0.05) Good!
+testOutliers(res2) #Zéro Outliers, good!
+```
+
+Le summary indique que la canopée influence significativement la présence/absence des ambystomes. L'Estimate négatif indique que plus la canopée est fermée, plus il y a de chances que l'ambystome soit présente.
+
+-Hydropériode
+
+```{r}
+mod_hydro <- glm(ambystoma ~ Hydro,family = binomial,method = "brglmFit",data = df)
+summary(mod_hydro) 
+```
+
+```{r}
+#| fig-show: hide
+#| warning: false
+#Vérification de la validité du modèle
+res3 <- simulateResiduals(mod_hydro)
+testUniformity(res3) #uniformité des résidus (p-value plus de 0.05) Good!
+testDispersion(res3) #Pas de surdispersion (p-value plus de 0.05) Good!
+testOutliers(res3) #Zéro Outliers, good!
+```
+
+Un autre significatif, l'hydropériode semble affecter la présence/abscence des ambystomes. Avec l'Estimate positif pour ''Hrydrosec'' il semblerait que la présence des ambystomes seraient plus élevé s'il y a des étangs qui sèche par la fin l'été. Le contraire s'applique pour les étangs qui reste humides pour plus longtemps.
+
+-La combinaison de l'ouverture de la canopée et de l'hydropériode
+
+```{r}
+#Modèle avec juste les composantes de l'habitat (et débris retiré)
+mod_habitat2 <- glm(ambystoma ~ Ouverture + Hydro ,family = binomial,method = "brglmFit",data = df)
+```
+
+```{r}
+#| fig-show: hide
+#| warning: false
+#Vérification de la validité du modèle
+vif(mod_habitat2) #Pas de collinéarité, Good!
+res5 <- simulateResiduals(mod_habitat2)
+testUniformity(res5) #uniformité des résidus (p-value plus de 0.05) Good!
+testDispersion(res5) #Pas de surdispersion (p-value plus de 0.05) Good!
+testOutliers(res5) #Zéro Outliers, good!
+```
+
+```{r}
+#comparaison entre des modèles
+anova(mod_can, mod_habitat2, test="Chisq")
+anova(mod_hydro, mod_habitat2, test="Chisq")
+```
+
+Les deux comparaisons avec une ANOVA son significatives. Ceci confirme que l'hydropériode seule ou la canopée seule n'expliquent pas complètement la présence/absence des ambystomes. Ces deux éléments doivent être inclus pour comprendre leur répartition.
+
+-L'effet des traitements:
+
+```{r}
+#Création d'un nouveau modèle global qui exclus les débris
+mod_global2 <- glm(ambystoma ~ Traitement + Ouverture + Hydro,family = binomial,method = "brglmFit",data = df)
+summary(mod_global2)
+```
+
+```{r}
+#| fig-show: hide
+#| warning: false
+#Vérification de la validité du modèle
+vif(mod_global2) #Pas de collinéarité, Good!
+res7 <- simulateResiduals(mod_global2)
+testUniformity(res7) #uniformité des résidus (p-value plus de 0.05) Good!
+testDispersion(res7) #Pas de surdispersion (p-value plus de 0.05) Good!
+testOutliers(res7) #Zéro Outliers, good!
+```
+
+```{r}
+#Comparaison des modèles
+anova(mod_habitat2, mod_global2, test = "Chisq")
+```
+
+La comparaison est non significative. Une fois l'habitat pris en compte, les traitements n'ajoutent rien de significatif au modèle. Les différences entre les traitements semblent être largement expliquées par les différences d'ouverture de la canopée et d'hydropériode qu'ils engendrent.
+
+2.5 **Visualisation :**
+
+Voici les mécanismes qui influence significativement la présence/absence des ambystomes dans l'habitat créé par les différents types de traitements sylvicoles.
+
+```{r}
+#| warning: false
+library(ggeffects)
+plot(ggpredict(mod_habitat2, terms = c("Ouverture", "Hydro")))
+```
+
+3.1 **Conclusion :**
+
+Parmis toutes les espèces étudié dans ce projet, seul les ambystomes sont des espèces indicatrices d'un habitat précis. Celles-ci sont liées aux traitement NAT et CJ car ce type de traitement sylvicole mène à la création d'un habitat similaire: une canopée fermée et des étangs à hydropériode plus courte ce qui explique probablement la présence des ambystomes.
+
+## Conclusion de l'analyse des communautées d'amphibiens:
+
+Les analyses précédentes ont permis de conclure que les communautés d'amphibiens diffèrent selon la présence ou l'absence de salamandres du genre Ambystoma. En effet, l'analyse IndVal indique que celles-ci sont des espèces indicatrices des traitements CJ et NAT. Ces traitements sylvicoles influencent les valeurs environnementales en créant des conditions qui sont liés à des étangs vernaux typiques. Ceci inclus une canopée plutôt fermée (prouvé de manière significative) et des étangs à hydropériode plus courtes (non prouvé de manière significative par manque de donnée, mais tendance claire). Une autre analyse indique aussi que ces deux valeurs environnementales sont les mécanismes les plus importants pour déterminer la présence des ambystomes. \
+Ainsi, les communautés d'amphibiens qui se ressemblent sont celles qui se trouvent dans les traitements NAT et CJ alors que celles du PEH et CPPTM diffère puisqu'elles n'ont pas d'ambystomes. Les traitements PEH et CPPTM semblent être associés avec des milieux ouverts et des étangs qui ont une hydropériode plus longue.
+
+Surprenament, la grenouille des bois, aussi dépendante des étangs vernaux, ne semble pas aussi sensible que les salamandres aux changements dans la canopée/hydropériode. Ceci pourrait être expliqué par leur capacité de déplacement plus développée. Toutefois, ceci pourrait aussi être lié à un biais d'échantillonage:\
+J'ai choisi mes étangs lors de la ponte du printemps. Seulement les oeufs de LISY et d'ambystomes étaient visibles. Puisque les ambystomes ne semblent pas utiliser les plantations de PEH et les CPPTM, les étangs que choisis dans ces types de traitements contenaient obligatoirement des LISY. Puisqu'il y a beaucoup d'autres espèces dans ces habitats comme la LICL et la PSCR, si j'aurais pu voir leurs oeufs, j'aurais pu avoir la possibilité de choisir des étangs qui ne contenaient pas exclusivement que des LISY. Avec le biais de sélection présent, ça donne l'impression qu'il y a plein de LISY dans les PEH/CPPTM alors qu'ils pourraient être en fait moins commun que d'autres espèces plus cryptiques comme les LICL et PSCR. Surtout que la littérature associe les LISY avec des canopées plus fermées comparés aux autres espèces inventoriées (LICL et PSCR).
+
+Un autre point à apporter c'est que les communautés dans les PEH et NAT ne sont pas similaires (manque de salamandres). Selon les analyses jusqu'à maintenant, les plantations ne semblent pas être un environnement adaptée pour les ambystomes et n'est pas du tout similaire au milieu naturel. Il a toutefois le potentiel de supporter des espèces avec une meilleure mobilités comme les anoures.
